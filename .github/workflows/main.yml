@@ -28,6 +28,11 @@ jobs:
         pip install gym
         pip install -r requirements.txt
 
+    - name: 2.5 Download .pkl weight file from Google Drive
+      run: |
+        pip install gdown
+        gdown --fuzzy 'https://drive.google.com/file/d/1DvyWFiDUye36VbO6aOy1MQiSoqeyJah4/view?usp=sharing'
+
     - name: 3. Ensure env.so is executable
       run: chmod +x env.cpython-38-x86_64-linux-gnu.so
 
