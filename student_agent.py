@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import copy
 import random
 import math
+import env
 # from trainfast import NTupleApproximator ,patterns, load_weights
 # from policytrain import PolicyApproximator, load_policy_weights
 from collections import defaultdict
