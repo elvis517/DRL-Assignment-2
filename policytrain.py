@@ -169,7 +169,7 @@ class TD_MCTS:
                 best_action = action
         return best_action, distribution
 
-filename_prefix = "policy_weights"
+filename_prefix = "policy_weight"
 
 def identity(r, c):
     return r, c
@@ -355,13 +355,14 @@ def load_weights(approximator, filename_prefix):
     for j in range(len(weights_data)):
         approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
     print(f"📥 Weights loaded from {filename_prefix}.pkl")
-load_weights(approximator, "ntuple_1stagefastfastold_50000")
+load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 
 policy_approximator = PolicyApproximator(board_size=4, patterns=patterns)
+load_policy_weights(policy_approximator, filename_prefix)
 print("sat")
-td_mcts = TD_MCTS(env, approximator, iterations=50, exploration_constant=1.41, rollout_depth=5, gamma=0.99)
+td_mcts = TD_MCTS(env, approximator, iterations=100, exploration_constant=1.41, rollout_depth=8, gamma=0.99)
 print("start training")
 self_play_training_policy_with_td_mcts(env, td_mcts, policy_approximator, num_episodes=500)
 
