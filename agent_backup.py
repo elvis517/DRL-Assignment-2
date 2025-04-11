@@ -561,7 +561,7 @@ def load_policy_weights(policy_approximator, filename_prefix, default_value=0.0)
         new_weights.append(new_w)
     
     policy_approximator.weights = new_weights
-    print(f"📥 Policy weights loaded from {filename_prefix}.pkl")
+    # print(f"📥 Policy weights loaded from {filename_prefix}.pkl")
 load_policy_weights(policy_approximator, "policy_weight.pkl")
 
 def get_action(state, score):
