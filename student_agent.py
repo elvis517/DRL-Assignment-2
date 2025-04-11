@@ -453,11 +453,11 @@ def load_weights(approximator, filename_prefix):
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
-env = Game2048Env()
+# env = Game2048Env()
 td_mcts = TD_MCTS(env, approximator, iterations=60, exploration_constant=1.41, rollout_depth=10, gamma=0.99)
 
 state = env.reset()
-env.render()
+
 
 
 def get_action(state, score):
