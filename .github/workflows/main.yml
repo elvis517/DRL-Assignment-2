@@ -33,6 +33,8 @@ jobs:
         pip install gdown
         gdown --fuzzy 'https://drive.google.com/file/d/1z5owIHDLz9DTqy5HBcgQs9nRgaqUYnsj/view?usp=sharing'
 
+        gdown --fuzzy 'https://drive.google.com/file/d/1W0M_lYLV2kfD_UOvgs74KeDOqNszKVaY/view?usp=sharing'
+
     - name: 3. Ensure env.so is executable
       run: chmod +x env.cpython-38-x86_64-linux-gnu.so
 
