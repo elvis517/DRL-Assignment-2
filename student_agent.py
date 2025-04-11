@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 import copy
 import random
 import math
-from trainfast import NTupleApproximator ,patterns, load_weights
-from policytrain import PolicyApproximator, load_policy_weights
+# from trainfast import NTupleApproximator ,patterns, load_weights
+# from policytrain import PolicyApproximator, load_policy_weights
+from collections import defaultdict
 COLOR_MAP = {
     0: "#cdc1b4", 2: "#eee4da", 4: "#ede0c8", 8: "#f2b179",
     16: "#f59563", 32: "#f67c5f", 64: "#f65e3b", 128: "#edcf72",
@@ -21,7 +22,14 @@ TEXT_COLOR = {
     32: "#f9f6f2", 64: "#f9f6f2", 128: "#f9f6f2", 256: "#f9f6f2",
     512: "#f9f6f2", 1024: "#f9f6f2", 2048: "#f9f6f2", 4096: "#f9f6f2"
 }
-
+def identity(r, c): return r, c
+def rot90(r, c): return c, 3 - r
+def rot180(r, c): return 3 - r, 3 - c
+def rot270(r, c): return 3 - c, r
+def flip_h(r, c): return r, 3 - c
+def flip_v(r, c): return 3 - r, c
+def flip_diag1(r, c): return c, r
+def flip_diag2(r, c): return 3 - c, 3 - r
 class TD_MCTS_Node:
     def __init__(self, state, score, parent=None, action=None):
         """
@@ -369,7 +377,79 @@ class Game2048Env(gym.Env):
         return not np.array_equal(self.board, temp_board)
 
 
+class NTupleApproximator:
+    def __init__(self, board_size, patterns, optimistic_init_value=32000.0):
+        self.board_size = board_size
+        self.patterns = patterns
+        self.weights = [defaultdict(lambda: optimistic_init_value) for _ in patterns]
+        self.symmetry_map = []
+        
+        transforms = [identity, rot90, rot180, rot270, flip_v, flip_h, flip_diag1, flip_diag2]
+        seen = set()  # 用來記錄已經出現過的規範化 pattern
+        
+        for i, pattern in enumerate(self.patterns):
+            for t in transforms:
+                transformed = tuple(t(r, c) for r, c in pattern)
+                # 規範化處理：將轉換後的 pattern 排序後作為唯一標識
+                canonical = tuple(sorted(transformed))
+                if canonical not in seen:
+                    seen.add(canonical)
+                    self.symmetry_map.append((i, transformed))
+        
+        # print(self.symmetry_map)
+
+        # # self.symmetry_map = list(set(self.symmetry_map))  # 去除重複的對稱映射
+        # print(f"NTupleApproximator initialized with {len(self.weights)} patterns and {len(self.symmetry_map)} symmetry mappings.")
+
+    def tile_to_index(self, tile):
+        return 0 if tile == 0 else int(math.log(tile, 2))
+
+    def get_feature(self, board, coords):
+        return tuple(self.tile_to_index(board[r][c]) for (r, c) in coords)
+
+    def value(self, board):
+        total = 0.0
+        for i, coords in self.symmetry_map:
+            feature = self.get_feature(board, coords)
+            total += self.weights[i][feature]
+        return total
+
+    def update(self, board, delta, alpha):
+        for i, coords in self.symmetry_map:
+            feature = self.get_feature(board, coords)
+            self.weights[i][feature] += alpha * delta
+patterns = [
+    [(0, 0), (0, 1), (0, 2), (0, 3), 
+     (1, 0), (1, 1)],
+    [(1, 0), (1, 1), (1, 2), (1, 3), 
+     (2, 0), (2, 1)],
+    [(2, 0), (2, 1), (2, 2), (2, 3), 
+     (3, 0), (3, 1)],
+
+    [(0, 0), (0, 1), (0, 2), 
+     (1, 0), (1, 1), (1, 2)],
+    [(1, 0), (1, 1), (1, 2), 
+     (2, 0), (2, 1), (2, 2)],
+
+    [(0, 0), (0, 1), (0, 2), (0, 3), 
+     (1, 0),        (1, 2)],
+
+    [(0, 0), (0, 1), 
+     (1, 0), (1, 1)],
+    [(1, 0), (1, 1), 
+     (2, 0), (2, 1)],
+    [(0, 0), (0, 1), (0, 2), (0, 3)],
+    [(1, 0), (1, 1), (1, 2), (1, 3)],
+    
+]
 approximator = NTupleApproximator(board_size=4, patterns=patterns)
+def load_weights(approximator, filename_prefix):
+
+    with open(f"{filename_prefix}.pkl", "rb") as f:
+        weights_data = pickle.load(f)
+    for j in range(len(weights_data)):
+        approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
+    # print(f"📥 Weights loaded from {filename_prefix}.pkl")
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
@@ -378,7 +458,6 @@ td_mcts = TD_MCTS(env, approximator, iterations=50, exploration_constant=1.41, r
 
 state = env.reset()
 env.render()
-
 
 
 def get_action(state, score):
