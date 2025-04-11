@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import copy
 import random
 import math
-from trainfast import NTupleApproximator ,patterns, load_weights
-from policytrain import PolicyApproximator, load_policy_weights
+from collections import defaultdict
 COLOR_MAP = {
     0: "#cdc1b4", 2: "#eee4da", 4: "#ede0c8", 8: "#f2b179",
     16: "#f59563", 32: "#f67c5f", 64: "#f65e3b", 128: "#edcf72",
@@ -376,10 +375,194 @@ class MCTS_PUCT:
 # -------------------------------
 # 重寫 get_action 函數：結合 value 與 policy
 # approximator
+def identity(r, c): return r, c
+def rot90(r, c): return c, 3 - r
+def rot180(r, c): return 3 - r, 3 - c
+def rot270(r, c): return 3 - c, r
+def flip_h(r, c): return r, 3 - c
+def flip_v(r, c): return 3 - r, c
+def flip_diag1(r, c): return c, r
+def flip_diag2(r, c): return 3 - c, 3 - r
+
+# -------------------------------
+# Base NTuple Approximator
+# -------------------------------
+class NTupleApproximator:
+    def __init__(self, board_size, patterns, optimistic_init_value=32000.0):
+        self.board_size = board_size
+        self.patterns = patterns
+        self.weights = [defaultdict(lambda: optimistic_init_value) for _ in patterns]
+        self.symmetry_map = []
+        
+        transforms = [identity, rot90, rot180, rot270, flip_v, flip_h, flip_diag1, flip_diag2]
+        seen = set()  # 用來記錄已經出現過的規範化 pattern
+        
+        for i, pattern in enumerate(self.patterns):
+            for t in transforms:
+                transformed = tuple(t(r, c) for r, c in pattern)
+                # 規範化處理：將轉換後的 pattern 排序後作為唯一標識
+                canonical = tuple(sorted(transformed))
+                if canonical not in seen:
+                    seen.add(canonical)
+                    self.symmetry_map.append((i, transformed))
+        
+        # print(self.symmetry_map)
+
+        # # self.symmetry_map = list(set(self.symmetry_map))  # 去除重複的對稱映射
+        # print(f"NTupleApproximator initialized with {len(self.weights)} patterns and {len(self.symmetry_map)} symmetry mappings.")
+
+    def tile_to_index(self, tile):
+        return 0 if tile == 0 else int(math.log(tile, 2))
+
+    def get_feature(self, board, coords):
+        return tuple(self.tile_to_index(board[r][c]) for (r, c) in coords)
+
+    def value(self, board):
+        total = 0.0
+        for i, coords in self.symmetry_map:
+            feature = self.get_feature(board, coords)
+            total += self.weights[i][feature]
+        return total
+
+    def update(self, board, delta, alpha):
+        for i, coords in self.symmetry_map:
+            feature = self.get_feature(board, coords)
+            self.weights[i][feature] += alpha * delta
+class PolicyApproximator:
+    def __init__(self, board_size, patterns):
+        """
+        Initializes the N-Tuple approximator.
+        Hint: you can adjust these if you want.
+        """
+        self.board_size = board_size
+        self.patterns = patterns
+        self.actions = [0, 1, 2, 3]  # 上下左右
+
+        # Weight structure: [pattern_idx][feature_key][action]
+        self.weights = [defaultdict(lambda: defaultdict(float)) for _ in range(len(patterns))]
+
+        # Generate the 8 symmetrical transformations for each pattern and store their types.
+        self.symmetry_patterns = []
+        self.symmetry_types = []  # Store the type of symmetry transformation (rotation or reflection)
+        for pattern in self.patterns:
+            syms, types = self.generate_symmetries(pattern)
+            self.symmetry_patterns.extend(syms)
+            self.symmetry_types.extend(types)
+
+        # TODO: Define corresponding action transformation functions for each symmetry.
+        # These are needed to map action probabilities consistently.
+        self.action_transforms = {
+            "identity": lambda a: a,
+            "rot90": lambda a: [2, 3, 1, 0][a],     # L->D->R->U
+            "rot180": lambda a: [1, 0, 3, 2][a],    # U<->D, L<->R
+            "rot270": lambda a: [3, 2, 0, 1][a],
+            "flip_h": lambda a: [0, 1, 3, 2][a],    # 左右對調
+            "flip_v": lambda a: [1, 0, 2, 3][a],    # 上下對調
+            "flip_diag1": lambda a: [0, 1, 2, 3][a],  # 通常不變
+            "flip_diag2": lambda a: [1, 0, 3, 2][a],  # 近似 rot180
+        }
+
+    def generate_symmetries(self, pattern):
+        # TODO: Generate 8 symmetrical transformations of the given pattern.
+        transforms = [
+            ("identity", identity),
+            ("rot90", rot90),
+            ("rot180", rot180),
+            ("rot270", rot270),
+            ("flip_h", flip_h),
+            ("flip_v", flip_v),
+            ("flip_diag1", flip_diag1),
+            ("flip_diag2", flip_diag2),
+        ]
+        symmetries = []
+        types = []
+        for name, t in transforms:
+            transformed = [t(r, c) for (r, c) in pattern]
+            symmetries.append(transformed)
+            types.append(name)
+        return symmetries, types
+
+    def tile_to_index(self, tile):
+        return 0 if tile == 0 else int(math.log(tile, 2))
+
+    def get_feature(self, board, coords):
+        # TODO: Extract tile values from the board based on the given coordinates and convert them into a feature tuple.
+        return tuple(self.tile_to_index(board[r][c]) for (r, c) in coords)
+
+    def predict(self, board):
+        # TODO: Predict the policy (probability distribution over actions) given the board state.
+        action_scores = np.zeros(4)
+        for pattern, weight in zip(self.symmetry_patterns, self.weights * 8):
+            feature = self.get_feature(board, pattern)
+            for action in self.actions:
+                action_scores[action] += weight[feature][action]
+
+        # Convert scores to probability via softmax
+        max_score = np.max(action_scores)
+        exp_scores = np.exp(action_scores - max_score)
+        probs = exp_scores / np.sum(exp_scores)
+        return probs
+
+    def update(self, board, target_distribution, alpha=0.1):
+        # TODO: Update policy based on the target distribution.
+        predicted = self.predict(board)
+        for pattern, weight in zip(self.symmetry_patterns, self.weights * 8):
+            feature = self.get_feature(board, pattern)
+            for action in self.actions:
+                weight[feature][action] += alpha * (target_distribution[action] - predicted[action])
+patterns = [
+    [(0, 0), (0, 1), (0, 2), (0, 3), 
+     (1, 0), (1, 1)],
+    [(1, 0), (1, 1), (1, 2), (1, 3), 
+     (2, 0), (2, 1)],
+    [(2, 0), (2, 1), (2, 2), (2, 3), 
+     (3, 0), (3, 1)],
+
+    [(0, 0), (0, 1), (0, 2), 
+     (1, 0), (1, 1), (1, 2)],
+    [(1, 0), (1, 1), (1, 2), 
+     (2, 0), (2, 1), (2, 2)],
+
+    [(0, 0), (0, 1), (0, 2), (0, 3), 
+     (1, 0),        (1, 2)],
+
+    [(0, 0), (0, 1), 
+     (1, 0), (1, 1)],
+    [(1, 0), (1, 1), 
+     (2, 0), (2, 1)],
+    [(0, 0), (0, 1), (0, 2), (0, 3)],
+    [(1, 0), (1, 1), (1, 2), (1, 3)],
+    
+]
 td_approximator = NTupleApproximator(board_size=4, patterns=patterns, optimistic_init_value=0)
-load_weights(td_approximator, "ntuple_1stagefastfastold_50000.pkl")
+
+def load_weights(approximator, filename_prefix):
+
+    with open(f"{filename_prefix}.pkl", "rb") as f:
+        weights_data = pickle.load(f)
+    for j in range(len(weights_data)):
+        approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
+    # print(f"📥 Weights loaded from {filename_prefix}.pkl")
+load_weights(td_approximator, "ntuple_1stagefastfastold_whole")
 policy_approximator = PolicyApproximator(env, patterns=patterns, weights=None)
-load_policy_weights(policy_approximator, "policy.pkl")
+def load_policy_weights(policy_approximator, filename_prefix, default_value=0.0):
+    """
+    從檔案中讀取 PolicyApproximator 的權重，並還原成 defaultdict 的結構。
+    這裡每個 feature 的對應權重將以 defaultdict(float) 還原。
+    """
+    with open(f"{filename_prefix}.pkl", "rb") as f:
+        weights_data = pickle.load(f)
+    
+    new_weights = []
+    for w in weights_data:
+        new_w = defaultdict(lambda: defaultdict(lambda: default_value))
+        for feature, action_dict in w.items():
+            new_w[feature] = defaultdict(float, action_dict)
+        new_weights.append(new_w)
+    
+    policy_approximator.weights = new_weights
+    print(f"📥 Policy weights loaded from {filename_prefix}.pkl")
+load_policy_weights(policy_approximator, "policy_weight.pkl")
 
 def get_action(state, score):
     """
