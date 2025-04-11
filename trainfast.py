@@ -40,10 +40,10 @@ class NTupleApproximator:
                     seen.add(canonical)
                     self.symmetry_map.append((i, transformed))
         
-        print(self.symmetry_map)
+        # print(self.symmetry_map)
 
-        # self.symmetry_map = list(set(self.symmetry_map))  # 去除重複的對稱映射
-        print(f"NTupleApproximator initialized with {len(self.weights)} patterns and {len(self.symmetry_map)} symmetry mappings.")
+        # # self.symmetry_map = list(set(self.symmetry_map))  # 去除重複的對稱映射
+        # print(f"NTupleApproximator initialized with {len(self.weights)} patterns and {len(self.symmetry_map)} symmetry mappings.")
 
     def tile_to_index(self, tile):
         return 0 if tile == 0 else int(math.log(tile, 2))
@@ -377,11 +377,11 @@ else:
     weight_prefix = "ntuple_1stagefastfastold_whole"
 
 env = Game2048Env()
-load_weights(approximator, "ntuple_1stagefastfastold_whole")
+# load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
-final_scores = td_learning(env, approximator, num_episodes=100000, alpha=0.005, gamma=0.99)
+# final_scores = td_learning(env, approximator, num_episodes=100000, alpha=0.005, gamma=0.99)
 
-save_weights(approximator, weight_prefix)
+# save_weights(approximator, weight_prefix)
 
 # 評估範例（可選）
 # for _ in range(5):
