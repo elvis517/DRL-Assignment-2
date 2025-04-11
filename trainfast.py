@@ -125,84 +125,10 @@ def load_weights(approximator, filename_prefix):
 # -------------------------------
 # TD Learning Loop
 # -------------------------------
-# def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, batch_size=5):
-#     final_scores = []
-#     success_flags = []
-#     replay_buffer = []  # 存放經驗：(afterstate, reward, next_value)
-#     for episode in range(num_episodes):
-#         state = env.reset()
-#         previous_score = 0
-#         done = False
-#         max_tile = np.max(state)
-
-#         replay_buffer = []  # 每一局初始化 buffer（移到這裡）
-
-#         while not done:
-#             legal_moves = [a for a in range(4) if env.is_move_legal(a)]
-#             if not legal_moves:
-#                 break
-
-#             move_values = {}
-#             for move in legal_moves:
-#                 afterstate = env.get_afterstate(state, move)
-#                 move_values[move] = approximator.value(afterstate)
-#             action = max(move_values, key=move_values.get)
-
-#             current_afterstate = env.get_afterstate(state, action)
-#             current_value = approximator.value(current_afterstate)
-
-#             next_state, new_score, done, _ = env.step(action)
-#             r = new_score - previous_score
-#             previous_score = new_score
-#             max_tile = max(max_tile, np.max(next_state))
-
-#             if not done:
-#                 next_legal_moves = [a for a in range(4) if env.is_move_legal(a)]
-#                 if next_legal_moves:
-#                     next_values = [approximator.value(env.get_afterstate(next_state, move))
-#                                 for move in next_legal_moves]
-#                     next_value = max(next_values)
-#                 else:
-#                     next_value = 0
-#             else:
-#                 next_value = 0
-
-#             # 存入 replay_buffer
-#             replay_buffer.append((current_afterstate, r, next_value))
-
-#             state = next_state
-
-#         # 🧠 局結束後才更新 approximator
-#         if replay_buffer:
-#             batch_afterstates, batch_rewards, batch_next_vals = zip(*replay_buffer)
-#             batch_rewards = np.array(batch_rewards)
-#             batch_next_vals = np.array(batch_next_vals)
-#             targets = batch_rewards + gamma * batch_next_vals
-#             batch_current_vals = np.array([approximator.value(s) for s in batch_afterstates])
-#             deltas = targets - batch_current_vals
-#             for s, delta in zip(batch_afterstates, deltas):
-#                 approximator.update(s, delta, alpha)
-
-#         # ⬇️ 記錄統計資料
-#         final_scores.append(env.score)
-#         success_flags.append(1 if max_tile >= 2048 else 0)
-
-#         if (episode + 1) % 100 == 0:
-#             avg_score = np.mean(final_scores[-100:])
-#             success_rate = np.sum(success_flags[-100:]) / 100
-#             print(f"Episode {episode+1}/{num_episodes} | Avg Score: {avg_score:.2f} | Success Rate: {success_rate:.2f}")
-#         if (episode + 1) % 500 == 0:
-#             save_weights(approximator, weight_prefix)
-#             print(f"Checkpoint saved at episode {episode + 1}")
-
-
-    # return final_scores
-# # -------------------------------
-def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, batch_size=5):
+def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, epsilon=0.1):
     final_scores = []
     success_flags = []
-    replay_buffer = []  # 存放經驗：(afterstate, reward, next_value)
-
+    print("Training started...")
     for episode in range(num_episodes):
         state = env.reset()
         previous_score = 0
@@ -214,60 +140,37 @@ def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, b
             if not legal_moves:
                 break
 
-            # 選擇動作 (這裡依然使用貪婪策略)
             move_values = {}
             for move in legal_moves:
                 afterstate = env.get_afterstate(state, move)
                 move_values[move] = approximator.value(afterstate)
+
+            # Epsilon-greedy
+            # if np.random.rand() < epsilon:
+            #     action = np.random.choice(legal_moves)
+            # else:
             action = max(move_values, key=move_values.get)
 
-            # 當前狀態的 afterstate 與其估值
             current_afterstate = env.get_afterstate(state, action)
             current_value = approximator.value(current_afterstate)
 
-            # 執行動作並獲得下一狀態、得分等
             next_state, new_score, done, _ = env.step(action)
             r = new_score - previous_score
             previous_score = new_score
             max_tile = max(max_tile, np.max(next_state))
 
-            # 計算下一狀態的最佳 afterstate 的估值
             if not done:
                 next_legal_moves = [a for a in range(4) if env.is_move_legal(a)]
-                if next_legal_moves:
-                    next_values = [approximator.value(env.get_afterstate(next_state, move))
-                                   for move in next_legal_moves]
-                    next_value = max(next_values)
-                else:
-                    next_value = 0
+                next_value = max([
+                    approximator.value(env.get_afterstate(next_state, move))
+                    for move in next_legal_moves
+                ]) if next_legal_moves else 0
             else:
                 next_value = 0
 
-            # 將經驗存入緩衝區
-            replay_buffer.append((current_afterstate, r, next_value))
-            
-            # 當累積到一定數量後，使用 numpy 向量化計算 TD 目標與誤差
-            if len(replay_buffer) >= batch_size:
-                # 將批次資料分離
-                batch_afterstates, batch_rewards, batch_next_vals = zip(*replay_buffer)
-                batch_rewards = np.array(batch_rewards)
-                batch_next_vals = np.array(batch_next_vals)
-                
-                # 計算 TD 目標： target = reward + gamma * next_value
-                targets = batch_rewards + gamma * batch_next_vals
-                
-                # 對每個 afterstate 用 approximator.value() 計算當前估值
-                # 注意這裡 approximator.value() 還是無法向量化，因此使用列表推導式
-                batch_current_vals = np.array([approximator.value(s) for s in batch_afterstates])
-                
-                # 利用 numpy 計算整個批次的 TD 誤差
-                deltas = targets - batch_current_vals
-
-                # 逐一更新每個樣本的權重
-                for s, delta in zip(batch_afterstates, deltas):
-                    approximator.update(s, delta, alpha)
-
-                replay_buffer = []  # 清空緩衝區
+            target = r + gamma * next_value
+            delta = target - current_value
+            approximator.update(current_afterstate, delta, alpha)
 
             state = next_state
 
@@ -279,13 +182,98 @@ def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, b
             success_rate = np.sum(success_flags[-100:]) / 100
             print(f"Episode {episode+1}/{num_episodes} | Avg Score: {avg_score:.2f} | Success Rate: {success_rate:.2f}")
         if (episode + 1) % 500 == 0:
-
             save_weights(approximator, weight_prefix)
             print(f"Checkpoint saved at episode {episode + 1}")
 
-    return final_scores
+#     return final_scores # # -------------------------------
+# def td_learning(env, approximator, num_episodes=50000, alpha=0.01, gamma=0.99, batch_size=1):
+#     final_scores = []
+#     success_flags = []
+#     replay_buffer = []  # 存放經驗：(afterstate, reward, next_value)
 
-# -------------------------------
+#     for episode in range(num_episodes):
+#         state = env.reset()
+#         previous_score = 0
+#         done = False
+#         max_tile = np.max(state)
+
+#         while not done:
+#             legal_moves = [a for a in range(4) if env.is_move_legal(a)]
+#             if not legal_moves:
+#                 break
+
+#             # 選擇動作 (這裡依然使用貪婪策略)
+#             move_values = {}
+#             for move in legal_moves:
+#                 afterstate = env.get_afterstate(state, move)
+#                 move_values[move] = approximator.value(afterstate)
+#             action = max(move_values, key=move_values.get)
+
+#             # 當前狀態的 afterstate 與其估值
+#             current_afterstate = env.get_afterstate(state, action)
+#             current_value = approximator.value(current_afterstate)
+
+#             # 執行動作並獲得下一狀態、得分等
+#             next_state, new_score, done, _ = env.step(action)
+#             r = new_score - previous_score
+#             previous_score = new_score
+#             max_tile = max(max_tile, np.max(next_state))
+
+#             # 計算下一狀態的最佳 afterstate 的估值
+#             if not done:
+#                 next_legal_moves = [a for a in range(4) if env.is_move_legal(a)]
+#                 if next_legal_moves:
+#                     next_values = [approximator.value(env.get_afterstate(next_state, move))
+#                                    for move in next_legal_moves]
+#                     next_value = max(next_values)
+#                 else:
+#                     next_value = 0
+#             else:
+#                 next_value = 0
+
+#             # 將經驗存入緩衝區
+#             replay_buffer.append((current_afterstate, r, next_value))
+            
+#             # 當累積到一定數量後，使用 numpy 向量化計算 TD 目標與誤差
+#             if len(replay_buffer) >= batch_size:
+#                 # 將批次資料分離
+#                 batch_afterstates, batch_rewards, batch_next_vals = zip(*replay_buffer)
+#                 batch_rewards = np.array(batch_rewards)
+#                 batch_next_vals = np.array(batch_next_vals)
+                
+#                 # 計算 TD 目標： target = reward + gamma * next_value
+#                 targets = batch_rewards + gamma * batch_next_vals
+                
+#                 # 對每個 afterstate 用 approximator.value() 計算當前估值
+#                 # 注意這裡 approximator.value() 還是無法向量化，因此使用列表推導式
+#                 batch_current_vals = np.array([approximator.value(s) for s in batch_afterstates])
+                
+#                 # 利用 numpy 計算整個批次的 TD 誤差
+#                 deltas = targets - batch_current_vals
+
+#                 # 逐一更新每個樣本的權重
+#                 for s, delta in zip(batch_afterstates, deltas):
+#                     approximator.update(s, delta, alpha)
+
+#                 replay_buffer = []  # 清空緩衝區
+
+#             state = next_state
+
+#         final_scores.append(env.score)
+#         success_flags.append(1 if max_tile >= 2048 else 0)
+
+#         if (episode + 1) % 100 == 0:
+#             avg_score = np.mean(final_scores[-100:])
+#             success_rate = np.sum(success_flags[-100:]) / 100
+#             print(f"Episode {episode+1}/{num_episodes} | Avg Score: {avg_score:.2f} | Success Rate: {success_rate:.2f}")
+#         if (episode + 1) % 500 == 0:
+
+#             save_weights(approximator, weight_prefix)
+#             print(f"Checkpoint saved at episode {episode + 1}")
+
+#     return final_scores
+
+# # # -------------------------------
 # Expectimax
 # -------------------------------
 def expectimax_action(env, approximator, depth=2):
@@ -386,10 +374,10 @@ if USE_MULTISTAGE:
     weight_prefix = "ntuple_3stage"
 else:
     approximator = NTupleApproximator(board_size=4, patterns=patterns, optimistic_init_value=0)
-    weight_prefix = "ntuple_1stagefastfastold_100000"
+    weight_prefix = "ntuple_1stagefastfastold_whole"
 
 env = Game2048Env()
-load_weights(approximator, "ntuple_1stagefastfastold_50000")
+load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 final_scores = td_learning(env, approximator, num_episodes=100000, alpha=0.005, gamma=0.99)
 
