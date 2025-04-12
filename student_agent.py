@@ -444,7 +444,7 @@ class MCTS_PUCT:
         如果 depth=0，等於直接使用 value function。
         """
         total_reward = 0.0
-        discount = 1.0
+        discount = self.gamma
         steps = 0
 
         while steps < depth and not sim_env.is_game_over():
@@ -459,8 +459,10 @@ class MCTS_PUCT:
                 action = np.random.choice(4, p=probs)
             else:
                 action = random.choice(legal_moves)
-
-            _, reward, done, _ = sim_env.step(action)
+            
+            old_score = sim_env.score
+            next_state, new_score, done, _ = sim_env.step(action, add_tile=False)
+            reward = new_score - old_score
             total_reward += discount * reward
             discount *= self.gamma
             steps += 1
@@ -469,8 +471,25 @@ class MCTS_PUCT:
                 return total_reward
 
         # 掃尾用 value approximator
+        move_values = {}
+        legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
+
+        for move in legal_moves:
+            afterstate = env.get_afterstate(state, move)
+            move_values[move] = approximator.value(afterstate)
+
+            # Epsilon-greedy
+            # if np.random.rand() < epsilon:
+            #     action = np.random.choice(legal_moves)
+            # else:
+            action = max(move_values, key=move_values.get)
+
+            current_afterstate = env.get_afterstate(state, action)
+            value = approximator.value(current_afterstate)
         value = self.value_approximator.value(sim_env.board)
-        return total_reward + discount * value
+        # return total_reward + discount * value
+        return value
+    
 
 
     def backpropagate(self, node, reward):
@@ -581,7 +600,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=120 , c_puct=1.41, rollout_depth=4, gamma=0.95)
+    mcts = MCTS_PUCT(env, approximator, iterations=60 , c_puct=1.41, rollout_depth=1, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
@@ -589,17 +608,17 @@ def get_action(state, score):
     return action
 # -------------------------------
 # # 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
-# done = False
-# env = Game2048Env()
-# state = env.reset()
-# score = 0
-# step_count = 0
+done = False
+env = Game2048Env()
+state = env.reset()
+score = 0
+step_count = 0
 
-# while not done:
-#     action = get_action(state, score)
-#     state, score, done, _ = env.step(action)
-#     # env.render()
-#     print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
-#     step_count += 1
+while not done:
+    action = get_action(state, score)
+    state, score, done, _ = env.step(action)
+    # env.render()
+    print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
+    step_count += 1
 
-# print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
+print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
