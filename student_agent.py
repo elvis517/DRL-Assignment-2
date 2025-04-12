@@ -305,96 +305,15 @@ class NTupleApproximator:
             self.weights[i][feature] += alpha * delta
 
 # -------------------------------
-# Policy Approximator
-class PolicyApproximator:
-    def __init__(self, board_size, patterns):
-        self.board_size = board_size
-        self.patterns = patterns
-        self.actions = [0, 1, 2, 3]
-
-        self.symmetry_patterns = []
-        self.symmetry_types = []
-        seen = set()
-
-        for pattern in self.patterns:
-            syms, types = self.generate_symmetries(pattern)
-            for sym, typ in zip(syms, types):
-                canonical = tuple(sorted(sym))
-                if canonical not in seen:
-                    seen.add(canonical)
-                    self.symmetry_patterns.append(sym)
-                    self.symmetry_types.append(typ)
-
-        self.weights = [defaultdict(lambda: defaultdict(float)) for _ in range(len(self.symmetry_patterns))]
-
-        self.action_transforms = {
-            "identity": lambda a: a,
-            "rot90": lambda a: [2, 3, 1, 0][a],
-            "rot180": lambda a: [1, 0, 3, 2][a],
-            "rot270": lambda a: [3, 2, 0, 1][a],
-            "flip_h": lambda a: [0, 1, 3, 2][a],
-            "flip_v": lambda a: [1, 0, 2, 3][a],
-            "flip_diag1": lambda a: a,
-            "flip_diag2": lambda a: [1, 0, 3, 2][a],
-        }
-
-    def generate_symmetries(self, pattern):
-        transforms = [
-            ("identity", identity),
-            ("rot90", rot90),
-            ("rot180", rot180),
-            ("rot270", rot270),
-            ("flip_h", flip_h),
-            ("flip_v", flip_v),
-            ("flip_diag1", flip_diag1),
-            ("flip_diag2", flip_diag2),
-        ]
-        symmetries = []
-        types = []
-        for name, t in transforms:
-            transformed = [t(r, c) for (r, c) in pattern]
-            symmetries.append(transformed)
-            types.append(name)
-        return symmetries, types
-
-    def tile_to_index(self, tile):
-        return 0 if tile == 0 else int(math.log(tile, 2))
-
-    def get_feature(self, board, coords):
-        return tuple(self.tile_to_index(board[r][c]) for (r, c) in coords)
-
-    def predict(self, board):
-        action_scores = np.zeros(4)
-        for pattern, weight, sym_type in zip(self.symmetry_patterns, self.weights, self.symmetry_types):
-            feature = self.get_feature(board, pattern)
-            action_map = self.action_transforms[sym_type]
-            for action in self.actions:
-                mapped_action = action_map(action)
-                action_scores[action] += weight[feature][mapped_action]
-
-        max_score = np.max(action_scores)
-        exp_scores = np.exp(action_scores - max_score)
-        probs = exp_scores / np.sum(exp_scores)
-        return probs
-
-    def update(self, board, target_distribution, alpha=0.1):
-        predicted = self.predict(board)
-        for pattern, weight, sym_type in zip(self.symmetry_patterns, self.weights, self.symmetry_types):
-            feature = self.get_feature(board, pattern)
-            action_map = self.action_transforms[sym_type]
-            for action in self.actions:
-                mapped_action = action_map(action)
-                weight[feature][mapped_action] += alpha * (target_distribution[action] - predicted[action])
-
 # PUCT-MCTS
 # -------------------------------
 class PUCTNode:
-    def __init__(self, state, score, parent=None, action=None, prior=1.0):
+    def __init__(self, state, score, parent=None, action=None):
         self.state = state.copy()
         self.score = score
         self.parent = parent
         self.action = action
-        self.prior = prior
+        self.prior = 1
         self.children = {}
         self.visits = 0
         self.total_reward = 0.0
@@ -410,10 +329,9 @@ class PUCTNode:
         return env.is_move_legal(action)
 
 class MCTS_PUCT:
-    def __init__(self, env, value_approximator, policy_approximator=None, iterations=100, c_puct=1.41, rollout_depth=10, gamma=0.99):
+    def __init__(self, env, value_approximator, iterations=100, c_puct=1.41, rollout_depth=15, gamma=0.99):
         self.env = env
         self.value_approximator = value_approximator
-        self.policy_approximator = policy_approximator  # ← 加這行
         self.iterations = iterations
         self.c_puct = c_puct
         self.rollout_depth = rollout_depth
@@ -438,13 +356,15 @@ class MCTS_PUCT:
                 best_child = child
         return best_child
 
+    # def rollout(self, sim_env):
+    #     return self.value_approximator.value(sim_env.board)
+    #517
     def rollout(self, sim_env, depth):
         """
-        policy-guided rollout 到最大 depth，然後用 value approximator 評估。
-        如果 depth=0，等於直接使用 value function。
+        隨機探索 depth 步，最後用 TD value 掃尾
         """
         total_reward = 0.0
-        discount = self.gamma
+        discount = 1.0
         steps = 0
 
         while steps < depth and not sim_env.is_game_over():
@@ -452,14 +372,7 @@ class MCTS_PUCT:
             if not legal_moves:
                 break
 
-            if self.policy_approximator:
-                probs = self.policy_approximator.predict(sim_env.board)
-                probs = np.array([probs[a] if a in legal_moves else 0 for a in range(4)])
-                probs /= np.sum(probs) + 1e-8
-                action = np.random.choice(4, p=probs)
-            else:
-                action = random.choice(legal_moves)
-            
+            action = random.choice(legal_moves)
             old_score = sim_env.score
             next_state, new_score, done, _ = sim_env.step(action, add_tile=False)
             reward = new_score - old_score
@@ -467,30 +380,27 @@ class MCTS_PUCT:
             discount *= self.gamma
             steps += 1
 
-            if done:
-                return total_reward
+            # if done:
+            #     return total_reward
 
         # 掃尾用 value approximator
-        move_values = {}
-        legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
-
-        for move in legal_moves:
-            afterstate = env.get_afterstate(state, move)
-            move_values[move] = approximator.value(afterstate)
-
-            # Epsilon-greedy
-            # if np.random.rand() < epsilon:
-            #     action = np.random.choice(legal_moves)
-            # else:
-            action = max(move_values, key=move_values.get)
-
-            current_afterstate = env.get_afterstate(state, action)
-            value = approximator.value(current_afterstate)
         value = self.value_approximator.value(sim_env.board)
         # return total_reward + discount * value
         return value
     
 
+    # def rollout(self, sim_env, depth):
+    #     # TODO: Perform a random rollout until reaching the maximum depth or a terminal state.
+    #     # TODO: Use the approximator to evaluate the final state.
+    #     # Note: It's not necessary to perform rollouts if the value approximator is accurate.
+    #     for _ in range(depth):
+    #         legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
+    #         if not legal_moves:
+    #             break
+    #         action = random.choice(legal_moves)
+    #         sim_env.step(action, add_random_tile=False)
+
+    #     return self.value_approximator.value(sim_env.board)
 
     def backpropagate(self, node, reward):
         while node is not None:
@@ -502,35 +412,25 @@ class MCTS_PUCT:
     def run_simulation(self, root):
         node = root
         sim_env = self.create_env_from_state(node.state, node.score)
+
         while node.fully_expanded() and node.children:
             node = self.select_child(node)
             _, new_score, done, _ = sim_env.step(node.action)
-            sim_env.score = new_score
+
             if done:
                 return
         if not node.untried_actions and not node.children:
             return  # 無合法動作可擴展
-        
         if not node.fully_expanded():
             action = node.untried_actions.pop()
             afterstate = get_afterstate(sim_env.board, action)
-            next_state, new_score, done, _ = sim_env.step(action)
-
-            # 使用 policy approximator
-            if self.policy_approximator is not None:
-                policy_probs = self.policy_approximator.predict(sim_env.board)
-                prior = policy_probs[action]
-            else:
-                prior = 1.0
-
-            child = PUCTNode(state=afterstate, score=new_score, parent=node, action=action, prior=prior)
+            sim_env.step(action, add_tile=False)
+            new_score = sim_env.score
+            child = PUCTNode(state=afterstate, score=new_score, parent=node, action=action)
             node.children[action] = child
             node = child
-            sim_env.board = next_state.copy()
-            sim_env.score = new_score
 
-
-        reward = self.rollout(sim_env, depth=self.rollout_depth)
+        reward = self.rollout(sim_env, self.rollout_depth)
         self.backpropagate(node, reward)
 
     def best_action_distribution(self, root):
@@ -568,39 +468,15 @@ def load_weights(approximator, filename_prefix):
         approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
-policy_approximator = PolicyApproximator(board_size=4, patterns=patterns)
-def load_policy_weights(policy_approximator, filename_prefix, default_value=0.0):
-    """
-    從檔案中讀取 PolicyApproximator 的權重，並還原成 defaultdict 結構。
-    權重數量應與 symmetry_patterns 數量一致。
-    """
-    with open(f"{filename_prefix}.pkl", "rb") as f:
-        weights_data = pickle.load(f)
 
-    if len(weights_data) != len(policy_approximator.symmetry_patterns):
-        raise ValueError(
-            f"❌ 錯誤：載入的權重數量（{len(weights_data)}）與 symmetry_patterns 不一致（{len(policy_approximator.symmetry_patterns)}）"
-        )
-
-    new_weights = []
-    for w in weights_data:
-        new_w = defaultdict(lambda: defaultdict(lambda: default_value))
-        for feature, action_dict in w.items():
-            new_w[feature] = defaultdict(float, action_dict)
-        new_weights.append(new_w)
-
-    policy_approximator.weights = new_weights
-    print(f"📥 Policy weights loaded from {filename_prefix}.pkl")
-load_policy_weights(policy_approximator, "policy_weight")
 
 
 def get_action(state, score):
     global approximator
-    global policy_approximator
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=60 , c_puct=1.41, rollout_depth=1, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=120, c_puct=1.41, rollout_depth=1, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
@@ -608,17 +484,17 @@ def get_action(state, score):
     return action
 # -------------------------------
 # # 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
-done = False
-env = Game2048Env()
-state = env.reset()
-score = 0
-step_count = 0
+# done = False
+# env = Game2048Env()
+# state = env.reset()
+# score = 0
+# step_count = 0
 
-while not done:
-    action = get_action(state, score)
-    state, score, done, _ = env.step(action)
-    # env.render()
-    print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
-    step_count += 1
+# while not done:
+#     action = get_action(state, score)
+#     state, score, done, _ = env.step(action)
+#     # env.render()
+#     print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
+#     step_count += 1
 
-print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
+# print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
