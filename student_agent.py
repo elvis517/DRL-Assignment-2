@@ -574,9 +574,7 @@ def get_action(state, score):
     最終返回最佳動作 (0: up, 1: down, 2: left, 3: right)。
     """
     # 建立一個新的環境實例
-    env_inst = copy.deepcopy(env)
-    env_inst.board = state.copy()
-    env_inst.score = score
+    env_inst = Game2048Env(state, score)
 
     # 建立根節點
     root = PUCTNode(state, score, parent=None, action=None, prior=0.0)
@@ -589,7 +587,7 @@ def get_action(state, score):
     # 注意：下方在擴展階段會從 policy 取得先驗，所以此處可以不用顯式地更新 root.P
 
     # 建立 MCTS 搜索器，同時傳入 value 與 policy approximator
-    mcts = MCTS_PUCT(env_inst, td_approximator, policy_approximator, iterations=500, c_puct=1.41, rollout_depth=10, gamma=0.99)
+    mcts = MCTS_PUCT(env_inst, td_approximator, policy_approximator, iterations=100, c_puct=1.41, rollout_depth=8, gamma=0.99)
     # 執行 MCTS 搜索
     root = mcts.search(root)
     # 根據搜尋結果選擇訪問次數最多的動作
