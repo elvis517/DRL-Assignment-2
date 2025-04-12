@@ -511,7 +511,7 @@ class MCTS_PUCT:
             sim_env.score = new_score
 
 
-        reward = self.rollout(sim_env)
+        reward = self.rollout(sim_env, depth=self.rollout_depth)
         self.backpropagate(node, reward)
 
     def best_action_distribution(self, root):
@@ -581,7 +581,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=120 , c_puct=1.41, rollout_depth=5, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=120 , c_puct=1.41, rollout_depth=4, gamma=0.95)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
