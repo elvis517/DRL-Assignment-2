@@ -606,8 +606,11 @@ def get_action(state, score):
     global policy_approximator
 
 
-    env = Game2048Env(state.copy(), score)
-    mcts_puct = MCTS_PUCT(
+    env = Game2048Env()
+    env.board = state.copy()
+    env.score = score
+
+    mcts = MCTS_PUCT(
         env=env,
         value_approximator=approximator,
         policy_approximator=policy_approximator,
@@ -618,10 +621,10 @@ def get_action(state, score):
     )
 
     root = PUCTNode(env)
-    for _ in range(mcts_puct.iterations):
-        mcts_puct.run_simulation(root)
+    for _ in range(mcts.iterations):
+        mcts.run_simulation(root)
 
-    best_action, _ = mcts_puct.best_action_distribution(root)
+    best_action, _ = mcts.best_action_distribution(root)
     return best_action
 
 
