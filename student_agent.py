@@ -620,7 +620,7 @@ def get_action(state, score):
         gamma=0.99
     )
 
-    root = PUCTNode(env)
+    root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
 

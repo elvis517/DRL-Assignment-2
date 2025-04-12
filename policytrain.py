@@ -10,6 +10,13 @@ from trainfast import NTupleApproximator
 # TODO: Define the action transformation functions (i.e., rot90_action, rot180_action, etc.)
 # Note: You have already defined transformation functions for patterns before.
 env = Game2048Env()
+def get_afterstate(board, action):
+    env = Game2048Env()
+    env.board = board.copy()
+    env.score = 0
+    env.step(action, add_tile=False)
+    return env.board.copy()
+
 def save_policy_weights(policy_approximator, filename_prefix):
     """
     將 PolicyApproximator 的權重儲存到檔案中。
@@ -288,7 +295,7 @@ def self_play_training_policy_with_td_mcts(env, td_mcts, policy_approximator, nu
     for episode in range(num_episodes):
         state = env.reset()
         done = False
-        print("start")
+        print(f"🎮 Episode {episode + 1}/{num_episodes} started")
         while not done:
             # Create the root node for the TD-MCTS tree
             root = TD_MCTS_Node(state, env.score)
@@ -299,8 +306,9 @@ def self_play_training_policy_with_td_mcts(env, td_mcts, policy_approximator, nu
 
             best_action, target_distribution = td_mcts.best_action_distribution(root)
 
-            # TODO: Update the NTuple Policy Approximator using the MCTS action distribution
-            policy_approximator.update(state, target_distribution, alpha=0.01)
+            # ✅ 改為使用 afterstate 來更新 policy
+            afterstate = get_afterstate(state, best_action)
+            policy_approximator.update(afterstate, target_distribution, alpha=0.01)
 
             # Execute the selected action in the real environment
             state, reward, done, _ = env.step(best_action)
@@ -309,13 +317,15 @@ def self_play_training_policy_with_td_mcts(env, td_mcts, policy_approximator, nu
         episode_scores.append(env.score)
 
         # 顯示進度
-        print(f"Episode {episode+1}/{num_episodes} finished, final score: {env.score}")
+        print(f"✅ Episode {episode+1} finished | Final score: {env.score}")
 
         if (episode + 1) % 1 == 0:
-            avg = np.mean(episode_scores[-1:])
-            print(f"📊 [Ep {episode+1}] Avg Score (last 10): {avg:.2f}")
+            avg = np.mean(episode_scores[-10:])  # 最近 10 次平均
+            print(f"📊 Avg Score (last 10): {avg:.2f}")
             save_policy_weights(policy_approximator, "policy_weight")
+
     return episode_scores
+
 
 
 env = Game2048Env()
@@ -355,7 +365,7 @@ def load_weights(approximator, filename_prefix):
     for j in range(len(weights_data)):
         approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
     print(f"📥 Weights loaded from {filename_prefix}.pkl")
-load_weights(approximator, "ntuple_1stagefastfastold_whole")
+# load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 
