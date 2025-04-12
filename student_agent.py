@@ -24,6 +24,18 @@ TEXT_COLOR = {
     512: "#f9f6f2", 1024: "#f9f6f2", 2048: "#f9f6f2", 4096: "#f9f6f2"
 }
 
+def get_afterstate(board, action):
+    """
+    傳回在某個動作後的 afterstate（只做滑動與合併，不加入 tile）
+    """
+    temp_env = Game2048Env()
+    temp_env.board = board.copy()
+    temp_env.score = 0  # 假設你只需要 reward
+    prev_score = temp_env.score
+    temp_env.step(action, add_tile=False)
+    afterstate = temp_env.board.copy()
+    score_delta = temp_env.score - prev_score
+    return afterstate, score_delta
 
 class Game2048Env(gym.Env):
     def __init__(self):
@@ -147,8 +159,8 @@ class Game2048Env(gym.Env):
 
         return True
 
-    def step(self, action):
-        """Execute one action"""
+    def step(self, action, add_tile=True):
+        """Execute one action, with optional control over adding random tile (for afterstate simulation)"""
         assert self.action_space.contains(action), "Invalid action"
 
         if action == 0:
@@ -164,12 +176,13 @@ class Game2048Env(gym.Env):
 
         self.last_move_valid = moved  # Record if the move was valid
 
-        if moved:
+        if moved and add_tile:
             self.add_random_tile()
 
         done = self.is_game_over()
 
-        return self.board, self.score, done, {}
+        return self.board.copy(), self.score, done, {}
+
 
     def render(self, mode="human", action=None):
         """
@@ -274,6 +287,21 @@ class PUCTNode:
         return len(self.untried_actions) == 0
 
 # MCTS_PUCT 類別，結合了 value 與 policy approximator
+import copy
+import math
+import numpy as np
+from env2048 import Game2048Env
+
+def get_afterstate(board, action):
+    """
+    回傳指定 action 之後的 afterstate（滑動合併後，不加入新 tile）
+    """
+    env = Game2048Env()
+    env.board = board.copy()
+    env.score = 0
+    env.step(action, add_tile=False)
+    return env.board.copy()
+
 class MCTS_PUCT:
     def __init__(self, env, value_approximator, policy_approximator, iterations=500, c_puct=1.41, rollout_depth=10, gamma=0.99):
         self.env = env
@@ -285,16 +313,14 @@ class MCTS_PUCT:
         self.gamma = gamma
 
     def create_env_from_state(self, state, score):
-        """建立環境的深拷貝，用於模擬"""
         new_env = copy.deepcopy(self.env)
         new_env.board = state.copy()
         new_env.score = score
         return new_env
 
     def select_child(self, node):
-        total_visits = sum(child.visits for child in node.children.values()) + 1e-8  # avoid division by zero
+        total_visits = sum(child.visits for child in node.children.values()) + 1e-8
         best_score = -float('inf')
-        best_action = None
         best_child = None
 
         for action, child in node.children.items():
@@ -303,57 +329,64 @@ class MCTS_PUCT:
             puct_score = q + u
             if puct_score > best_score:
                 best_score = puct_score
-                best_action = action
                 best_child = child
-        return best_child, best_action
+        return best_child
 
     def rollout(self, sim_env, depth):
-        # 目前直接利用已訓練的 value approximator 評估葉節點
-        value_est = self.value_approximator.value(sim_env.board)
-        return value_est
+        """
+        在 afterstate 上直接用 value approximator 評估，不進行隨機 rollout
+        """
+        return self.value_approximator.value(sim_env.board)
 
     def backpropagate(self, node, reward):
         while node is not None:
             node.visits += 1
             node.total_reward += reward
-            reward *= self.gamma  # 應用折扣因子
+            reward *= self.gamma
             node = node.parent
 
     def run_simulation(self, root):
         node = root
         sim_env = self.create_env_from_state(node.state, node.score)
 
-        # Selection Phase：從根節點向下選擇直到遇到可擴展的節點
+        # Selection phase
         while node.fully_expanded() and node.children:
-            node, _ = self.select_child(node)
-            # 執行選擇的動作模擬狀態更新
-            next_state, new_score, done, _ = sim_env.step(node.action) if node.action is not None else (sim_env.board.copy(), sim_env.score, False, {})
-            sim_env.board = next_state.copy()
-            sim_env.score = new_score
-            if done:
-                break
+            node = self.select_child(node)
+            if node.action is not None:
+                next_state, new_score, done, _ = sim_env.step(node.action)
+                sim_env.board = next_state.copy()
+                sim_env.score = new_score
+                if done:
+                    return
 
-        # Expansion Phase：若還有未試過的動作且非終止狀態，擴展節點
+        # Expansion phase
         if not node.fully_expanded():
             action = node.untried_actions.pop()
-            next_state, new_score, done, _ = sim_env.step(action)
 
-            # 取得該狀態下的先驗分佈，使用 policy approximator
-            priors = self.policy_approximator.predict(next_state)
+            # Afterstate 模擬（不加入新 tile）
+            afterstate = get_afterstate(sim_env.board, action)
+
+            # policy 是基於 afterstate 的
+            priors = self.policy_approximator.predict(afterstate)
             prior_prob = priors[action]
 
-            child_node = PUCTNode(state=next_state, score=new_score, parent=node, action=action, prior=prior_prob)
+            # 執行 action 更新環境（含 tile）
+            next_state, new_score, done, _ = sim_env.step(action)
+
+            # 建立新節點（使用 afterstate 為節點 state）
+            child_node = PUCTNode(state=afterstate, score=new_score, parent=node, action=action, prior=prior_prob)
             node.children[action] = child_node
             node = child_node
 
             sim_env.board = next_state.copy()
             sim_env.score = new_score
 
-        # Rollout Phase：從擴展節點進行 rollout 模擬
+        # Rollout phase
         rollout_reward = self.rollout(sim_env, self.rollout_depth)
 
-        # Backpropagation Phase：將 rollout 的結果向上反向更新
+        # Backpropagation
         self.backpropagate(node, rollout_reward)
+
 
     def search(self, root):
         for _ in range(self.iterations):
@@ -569,30 +602,27 @@ def load_policy_weights(policy_approximator, filename_prefix, default_value=0.0)
 load_policy_weights(policy_approximator, "policy_weight")
 
 def get_action(state, score):
-    """
-    根據當前狀態與得分，建立 MCTS 搜索樹，利用已訓練的 TD value approximator 和 policy approximator，
-    最終返回最佳動作 (0: up, 1: down, 2: left, 3: right)。
-    """
-    # 建立一個新的環境實例
-    env_inst = Game2048Env(state, score)
+    global approximator
+    global policy_approximator
 
-    # 建立根節點
-    root = PUCTNode(state, score, parent=None, action=None, prior=0.0)
-    # 透過 policy approximator 得到根狀態先驗分佈，更新根節點的先驗
-    policy_probs = policy_approximator.predict(state)
-    # 針對所有根節點的合法動作進行更新
-    for a in root.untried_actions:
-        root.prior = 0  # 根節點自身的 prior 可以維持 0
-        # 若該動作在 policy_prob 中有定義，則設為相應先驗值；否則均勻分配
-    # 注意：下方在擴展階段會從 policy 取得先驗，所以此處可以不用顯式地更新 root.P
 
-    # 建立 MCTS 搜索器，同時傳入 value 與 policy approximator
-    mcts = MCTS_PUCT(env_inst, td_approximator, policy_approximator, iterations=100, c_puct=1.41, rollout_depth=8, gamma=0.99)
-    # 執行 MCTS 搜索
-    root = mcts.search(root)
-    # 根據搜尋結果選擇訪問次數最多的動作
-    best_a = mcts.best_action(root)
-    return best_a
+    env = Game2048Env(state.copy(), score)
+    mcts_puct = MCTS_PUCT(
+        env=env,
+        value_approximator=approximator,
+        policy_approximator=policy_approximator,
+        iterations=50,
+        c_puct=1.41,
+        rollout_depth=8,
+        gamma=0.99
+    )
+
+    root = PUCTNode(env)
+    for _ in range(mcts_puct.iterations):
+        mcts_puct.run_simulation(root)
+
+    best_action, _ = mcts_puct.best_action_distribution(root)
+    return best_action
 
 
 
