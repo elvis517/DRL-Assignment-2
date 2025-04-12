@@ -602,7 +602,7 @@ def load_policy_weights(policy_approximator, filename_prefix, default_value=0.0)
 load_policy_weights(policy_approximator, "policy_weight")
 
 def get_action(state, score):
-    global approximator
+    global td_approximator
     global policy_approximator
 
 
@@ -612,7 +612,7 @@ def get_action(state, score):
 
     mcts = MCTS_PUCT(
         env=env,
-        value_approximator=approximator,
+        value_approximator=td_approximator,
         policy_approximator=policy_approximator,
         iterations=50,
         c_puct=1.41,
