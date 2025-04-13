@@ -285,8 +285,7 @@ class NTupleApproximator:
                 if key not in seen:
                     seen.add(key)
                     self.symmetry_map.append((i, trans))
-        self.symmetry_map = list(set(self.symmetry_map)) # 去除重複的對稱映射
-
+        self.symmetry_map = list(set(self.symmetry_map))  # 去除重複的對稱映射
     def tile_to_index(self, tile):
         return 0 if tile == 0 else int(math.log(tile, 2))
 
@@ -314,7 +313,7 @@ class PUCTNode:
         self.score = score
         self.parent = parent
         self.action = action
-        self.prior = 1
+        self.prior = 1.0
         self.children = {}
         self.visits = 0
         self.total_reward = 0.0
@@ -359,7 +358,6 @@ class MCTS_PUCT:
 
     # def rollout(self, sim_env):
     #     return self.value_approximator.value(sim_env.board)
-    #517
     def rollout(self, sim_env, depth):
         """
         隨機探索 depth 步，最後用 TD value 掃尾
@@ -385,23 +383,24 @@ class MCTS_PUCT:
             #     return total_reward
 
         # 掃尾用 value approximator
+        # move_values = {}
+        # legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
+
+        # for move in legal_moves:
+        #     afterstate = env.get_afterstate(state, move)
+        #     move_values[move] = approximator.value(afterstate)
+
+        #     # Epsilon-greedy
+
+        #     action = max(move_values, key=move_values.get)
+
+        #     current_afterstate = env.get_afterstate(state, action)
+        #     value = approximator.value(current_afterstate)
         value = self.value_approximator.value(sim_env.board)
         # return total_reward + discount * value
-        return value+ new_score
-    
+        return value + new_score
 
-    # def rollout(self, sim_env, depth):
-    #     # TODO: Perform a random rollout until reaching the maximum depth or a terminal state.
-    #     # TODO: Use the approximator to evaluate the final state.
-    #     # Note: It's not necessary to perform rollouts if the value approximator is accurate.
-    #     for _ in range(depth):
-    #         legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
-    #         if not legal_moves:
-    #             break
-    #         action = random.choice(legal_moves)
-    #         sim_env.step(action, add_random_tile=False)
 
-    #     return self.value_approximator.value(sim_env.board)
 
     def backpropagate(self, node, reward):
         while node is not None:
@@ -413,11 +412,10 @@ class MCTS_PUCT:
     def run_simulation(self, root):
         node = root
         sim_env = self.create_env_from_state(node.state, node.score)
-
         while node.fully_expanded() and node.children:
             node = self.select_child(node)
             _, new_score, done, _ = sim_env.step(node.action)
-
+            sim_env.score = new_score
             if done:
                 return
         if not node.untried_actions and not node.children:
@@ -425,12 +423,12 @@ class MCTS_PUCT:
         if not node.fully_expanded():
             action = node.untried_actions.pop()
             afterstate = get_afterstate(sim_env.board, action)
-            sim_env.step(action, add_tile=False)
-            new_score = sim_env.score
+            next_state, new_score, done, _ = sim_env.step(action)
             child = PUCTNode(state=afterstate, score=new_score, parent=node, action=action)
             node.children[action] = child
             node = child
-
+            sim_env.board = next_state.copy()
+            sim_env.score = new_score
         reward = self.rollout(sim_env, self.rollout_depth)
         self.backpropagate(node, reward)
 
@@ -467,6 +465,7 @@ def load_weights(approximator, filename_prefix):
         weights_data = pickle.load(f)
     for j in range(len(weights_data)):
         approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
+# load_weights(approximator, "/content/drive/MyDrive/DRL/ntuple_1stagefastfastold_whole")
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
@@ -477,7 +476,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=200, c_puct=1.41, rollout_depth=8, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=300, c_puct=1.41, rollout_depth=8, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
@@ -494,7 +493,7 @@ def get_action(state, score):
 # while not done:
 #     action = get_action(state, score)
 #     state, score, done, _ = env.step(action)
-#     # env.render()
+#     env.render()
 #     print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
 #     step_count += 1
 
