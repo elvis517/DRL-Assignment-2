@@ -472,14 +472,15 @@ load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 def get_action(state, score):
+    print(score)
     try:
-        print(score)
+        
         global approximator
         env = Game2048Env()
         env.board = state.copy()
         env.score = score
 
-        mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
+        mcts = MCTS_PUCT(env, approximator, iterations=10, c_puct=1.3, rollout_depth=1, gamma=0.99)
         root = PUCTNode(env.board, env.score)
 
         for _ in range(mcts.iterations):
