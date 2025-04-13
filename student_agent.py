@@ -367,7 +367,7 @@ class MCTS_PUCT:
         total_reward = 0.0
         discount = 1.0
         steps = 0
-
+        new_score = sim_env.score
         while steps < depth and not sim_env.is_game_over():
             legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
             if not legal_moves:
@@ -387,7 +387,7 @@ class MCTS_PUCT:
         # 掃尾用 value approximator
         value = self.value_approximator.value(sim_env.board)
         # return total_reward + discount * value
-        return value
+        return value+ new_score
     
 
     # def rollout(self, sim_env, depth):
@@ -477,7 +477,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=160, c_puct=1.41, rollout_depth=4, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=200, c_puct=1.41, rollout_depth=8, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
