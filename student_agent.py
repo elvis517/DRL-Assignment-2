@@ -472,17 +472,33 @@ load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 def get_action(state, score):
-    print(score)
-    global approximator
-    env = Game2048Env()
-    env.board = state.copy()
-    env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
-    root = PUCTNode(env.board, env.score)
-    for _ in range(mcts.iterations):
-        mcts.run_simulation(root)
-    action, _ = mcts.best_action_distribution(root)
-    return action
+    try:
+        print(score)
+        global approximator
+        env = Game2048Env()
+        env.board = state.copy()
+        env.score = score
+
+        mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
+        root = PUCTNode(env.board, env.score)
+
+        for _ in range(mcts.iterations):
+            mcts.run_simulation(root)
+
+        action, _ = mcts.best_action_distribution(root)
+        return action
+
+    except Exception as e:
+        print(f"[get_action] ❌ Error: {e}")
+        # 回傳合法隨機動作
+        fallback_env = Game2048Env()
+        fallback_env.board = state.copy()
+        fallback_env.score = score
+        legal_moves = [a for a in range(4) if fallback_env.is_move_legal(a)]
+
+        return random.choice(legal_moves)
+
+
 # -------------------------------
 # # 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
 # done = False
