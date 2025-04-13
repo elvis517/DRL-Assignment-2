@@ -308,140 +308,98 @@ class NTupleApproximator:
 # PUCT-MCTS
 # -------------------------------
 class PUCTNode:
-    def __init__(self, state, score, parent=None, action=None):
-        self.state = state.copy()
-        self.score = score
+    def __init__(self, env, parent=None, action=None):
+        """
+        state: current board state (numpy array)
+        score: cumulative score at this node
+        parent: parent node (None for root)
+        action: action taken from parent to reach this node
+        """
+        self.state = env.board.copy()
+        self.score = env.score
         self.parent = parent
         self.action = action
-        self.prior = 1.0
         self.children = {}
         self.visits = 0
         self.total_reward = 0.0
-        self.untried_actions = [a for a in range(4) if self.is_legal_action(state, a)]
+        self.untried_actions = [a for a in range(4) if env.is_move_legal(a)]
 
     def fully_expanded(self):
+        # A node is fully expanded if no legal actions remain untried.
         return len(self.untried_actions) == 0
 
-    @staticmethod
-    def is_legal_action(state, action):
-        env = Game2048Env()
-        env.board = state.copy()
-        return env.is_move_legal(action)
-
+# TD-MCTS class utilizing a trained approximator for leaf evaluation
 class MCTS_PUCT:
-    def __init__(self, env, value_approximator, iterations=100, c_puct=1.41, rollout_depth=8, gamma=0.99):
+    def __init__(self, env, approximator, iterations=500, c_puct=1.41, rollout_depth=10, gamma=0.99):
         self.env = env
-        self.value_approximator = value_approximator
+        self.approximator = approximator
         self.iterations = iterations
-        self.c_puct = c_puct
+        self.c = c_puct
         self.rollout_depth = rollout_depth
         self.gamma = gamma
 
     def create_env_from_state(self, state, score):
-        env = copy.deepcopy(self.env)
-        env.board = state.copy()
-        env.score = score
-        return env
+        # Create a deep copy of the environment with the given state and score.
+        new_env = copy.deepcopy(self.env)
+        new_env.board = state.copy()
+        new_env.score = score
+        return new_env
 
     def select_child(self, node):
-        total_visits = sum(child.visits for child in node.children.values()) + 1e-8
-        best_score = -float('inf')
-        best_child = None
-        for action, child in node.children.items():
-            q = child.total_reward / (child.visits + 1e-8)
-            u = self.c_puct * child.prior * math.sqrt(total_visits) / (1 + child.visits)
-            score = q + u
-            if score > best_score:
-                best_score = score
-                best_child = child
-        return best_child
+        # Use the UCT formula: Q + c * sqrt(log(parent.visits)/child.visits) to select the best child.
+        return max(
+            node.children.values(),
+            key=lambda child: self.approximator.value(child.state) + self.c * math.sqrt(math.log(node.visits) / child.visits)
+        )
 
-    # def rollout(self, sim_env):
-    #     return self.value_approximator.value(sim_env.board)
     def rollout(self, sim_env, depth):
-        """
-        隨機探索 depth 步，最後用 TD value 掃尾
-        """
-        total_reward = 0.0
-        discount = 1.0
-        steps = 0
-        new_score = sim_env.score
-        while steps < depth and not sim_env.is_game_over():
-            legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
-            if not legal_moves:
+        # Perform a random rollout until reaching the maximum depth or a terminal state.
+        # Use the approximator to evaluate the final state.
+        for _ in range(depth):
+            legal_actions = [a for a in range(4) if sim_env.is_move_legal(a)]
+            if legal_actions == []:
                 break
-
-            action = random.choice(legal_moves)
-            old_score = sim_env.score
-            next_state, new_score, done, _ = sim_env.step(action, add_tile=False)
-            reward = new_score - old_score
-            total_reward += discount * reward
-            discount *= self.gamma
-            steps += 1
-
-            # if done:
-            #     return total_reward
-
-        # 掃尾用 value approximator
-        # move_values = {}
-        # legal_moves = [a for a in range(4) if sim_env.is_move_legal(a)]
-
-        # for move in legal_moves:
-        #     afterstate = env.get_afterstate(state, move)
-        #     move_values[move] = approximator.value(afterstate)
-
-        #     # Epsilon-greedy
-
-        #     action = max(move_values, key=move_values.get)
-
-        #     current_afterstate = env.get_afterstate(state, action)
-        #     value = approximator.value(current_afterstate)
-        value = self.value_approximator.value(sim_env.board)
-        # return total_reward + discount * value
-        return value + new_score
-
-
-
+            action = random.choice(legal_actions)
+            sim_env.step(action, add_tile=False)
+        return self.approximator.value(sim_env.board)
+        
     def backpropagate(self, node, reward):
+        # Propagate the obtained reward back up the tree.
         while node is not None:
             node.visits += 1
-            node.total_reward += reward
-            reward *= self.gamma
+            node.total_reward += (reward - node.total_reward) / node.visits
             node = node.parent
+            reward *= self.gamma
 
     def run_simulation(self, root):
         node = root
         sim_env = self.create_env_from_state(node.state, node.score)
+
+        # Selection: Traverse the tree until reaching an unexpanded node.
         while node.fully_expanded() and node.children:
             node = self.select_child(node)
-            _, new_score, done, _ = sim_env.step(node.action)
-            sim_env.score = new_score
-            if done:
-                return
-        if not node.untried_actions and not node.children:
-            return  # 無合法動作可擴展
-        if not node.fully_expanded():
+            sim_env.step(node.action)
+
+        # Expansion: If the node is not terminal, expand an untried action.
+        if node.untried_actions != []:
             action = node.untried_actions.pop()
-            afterstate = get_afterstate(sim_env.board, action)
-            next_state, new_score, done, _ = sim_env.step(action)
-            child = PUCTNode(state=afterstate, score=new_score, parent=node, action=action)
-            node.children[action] = child
-            node = child
-            sim_env.board = next_state.copy()
-            sim_env.score = new_score
-        reward = self.rollout(sim_env, self.rollout_depth)
-        self.backpropagate(node, reward)
+            sim_env.step(action, add_tile=False)
+            node.children[action] = PUCTNode(sim_env, parent=node, action=action)
+            node = node.children[action]
+
+        # Rollout: Simulate a random game from the expanded node.
+        rollout_reward = self.rollout(sim_env, self.rollout_depth)
+        # Backpropagate the obtained reward.
+        self.backpropagate(node, rollout_reward)
 
     def best_action_distribution(self, root):
-        total = sum(child.visits for child in root.children.values()) + 1e-8
-        best_visits, best_action = -1, None
+        # Compute the normalized visit count distribution for each child of the root.
+        total_visits = sum(child.visits for child in root.children.values())
         distribution = np.zeros(4)
         for action, child in root.children.items():
-            distribution[action] = child.visits / total
-            if child.visits > best_visits:
-                best_visits = child.visits
-                best_action = action
-        return best_action, distribution
+            distribution[action] += child.visits / total_visits if total_visits > 0 else 0
+        return np.argmax(distribution), distribution
+
 
 # -------------------------------
 # 推論接口：get_action
@@ -466,39 +424,22 @@ def load_weights(approximator, filename_prefix):
     for j in range(len(weights_data)):
         approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
 # load_weights(approximator, "/content/drive/MyDrive/DRL/ntuple_1stagefastfastold_whole")
+
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 
-
 def get_action(state, score):
-    try:
-        
-        global approximator
-        env = Game2048Env()
-        env.board = state.copy()
-        env.score = score
-
-        mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
-        root = PUCTNode(env.board, env.score)
-
-        for _ in range(mcts.iterations):
-            mcts.run_simulation(root)
-
-        action, _ = mcts.best_action_distribution(root)
-        return action
-
-    except Exception as e:
-        print(f"[get_action] ❌ Error: {e}")
-        # 回傳合法隨機動作
-        fallback_env = Game2048Env()
-        fallback_env.board = state.copy()
-        fallback_env.score = score
-        legal_moves = [a for a in range(4) if fallback_env.is_move_legal(a)]
-
-        return random.choice(legal_moves)
-
-
+    global approximator
+    env = Game2048Env()
+    env.board = state.copy()
+    env.score = score
+    mcts = MCTS_PUCT(env, approximator, iterations=50, c_puct=1.41, rollout_depth=2, gamma=0.99)
+    root = PUCTNode(env)
+    for _ in range(mcts.iterations):
+        mcts.run_simulation(root)
+    action, _ = mcts.best_action_distribution(root)
+    return action
 # -------------------------------
 # # 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
 # done = False
@@ -506,12 +447,14 @@ def get_action(state, score):
 # state = env.reset()
 # score = 0
 # step_count = 0
+# #重複十次
+# for i in range(10):
+#   done = False
+#   while not done:
+#       action = get_action(state, score)
+#       state, score, done, _ = env.step(action)
+#       # env.render()
+#       print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
+#       step_count += 1
 
-# while not done:
-#     action = get_action(state, score)
-#     state, score, done, _ = env.step(action)
-#     env.render()
-#     print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
-#     step_count += 1
-
-# print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
+#   print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
