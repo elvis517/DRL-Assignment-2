@@ -472,6 +472,7 @@ load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 def get_action(state, score):
+    print(score)
     global approximator
     env = Game2048Env()
     env.board = state.copy()
