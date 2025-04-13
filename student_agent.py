@@ -329,7 +329,7 @@ class PUCTNode:
         return env.is_move_legal(action)
 
 class MCTS_PUCT:
-    def __init__(self, env, value_approximator, iterations=100, c_puct=1.41, rollout_depth=15, gamma=0.99):
+    def __init__(self, env, value_approximator, iterations=100, c_puct=1.41, rollout_depth=8, gamma=0.99):
         self.env = env
         self.value_approximator = value_approximator
         self.iterations = iterations
@@ -477,7 +477,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=8, c_puct=1.41, rollout_depth=1, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
