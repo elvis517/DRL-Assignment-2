@@ -285,6 +285,7 @@ class NTupleApproximator:
                 if key not in seen:
                     seen.add(key)
                     self.symmetry_map.append((i, trans))
+        self.symmetry_map = list(set(self.symmetry_map)) # 去除重複的對稱映射
 
     def tile_to_index(self, tile):
         return 0 if tile == 0 else int(math.log(tile, 2))
@@ -476,7 +477,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=120, c_puct=1.41, rollout_depth=1, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=160, c_puct=1.41, rollout_depth=4, gamma=0.99)
     root = PUCTNode(env.board, env.score)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
