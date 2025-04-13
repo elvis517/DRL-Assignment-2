@@ -479,7 +479,7 @@ def get_action(state, score):
         env.board = state.copy()
         env.score = score
 
-        mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=2, rollout_depth=8, gamma=0.99)
+        mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=1.3, rollout_depth=8, gamma=0.99)
         root = PUCTNode(env.board, env.score)
 
         for _ in range(mcts.iterations):
