@@ -472,7 +472,6 @@ load_weights(approximator, "ntuple_1stagefastfastold_whole")
 
 
 def get_action(state, score):
-    print(score)
     try:
         
         global approximator
