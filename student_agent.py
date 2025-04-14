@@ -361,7 +361,7 @@ class MCTS_PUCT:
                 break
             action = random.choice(legal_actions)
             sim_env.step(action, add_tile=False)
-        return self.approximator.value(sim_env.board)
+        return self.approximator.value(sim_env.board) + sim_env.score
         
     def backpropagate(self, node, reward):
         # Propagate the obtained reward back up the tree.
@@ -434,7 +434,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=50, c_puct=1.41, rollout_depth=2, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=100, c_puct=1.41, rollout_depth=4, gamma=0.99)
     root = PUCTNode(env)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
