@@ -444,34 +444,34 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=40, c_puct=1.41, rollout_depth=2, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=50, rollout_depth=5, gamma=0.99)
     root = PUCTNode(env)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
     action, _ = mcts.best_action_distribution(root)
     return action
 # -------------------------------
-# # 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
+# 最終 get_action 函數：使用 PUCT-MCTS 並整合 afterstate
 # done = False
 # env = Game2048Env()
 # state = env.reset()
 # score = 0
 # step_count = 0
 # #重複十次
-for i in range(10):
-    done = False
-    env = Game2048Env()
-    state = env.reset()
-    score = 0
-    step_count = 0
-    #重複十次
-    while not done:
-        action = get_action(state, score)
-        state, score, done, _ = env.step(action)
-        print(approximator.value(env.board))
+# for i in range(10):
+#     done = False
+#     env = Game2048Env()
+#     state = env.reset()
+#     score = 0
+#     step_count = 0
+#     #重複十次
+#     while not done:
+#         action = get_action(state, score)
+#         state, score, done, _ = env.step(action)
+#         # print(approximator.value(env.board))
 
-        # env.render()
-        # print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
-        step_count += 1
+#         # env.render()
+#         print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
+#         step_count += 1
 
-    print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
+#     print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
