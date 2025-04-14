@@ -361,7 +361,7 @@ class MCTS_PUCT:
                 break
             action = random.choice(legal_actions)
             sim_env.step(action, add_tile=False)
-        return self.approximator.value(sim_env.board) + sim_env.score
+        return self.approximator.value(sim_env.board) + sim_env.score/10
         
     def backpropagate(self, node, reward):
         # Propagate the obtained reward back up the tree.
@@ -421,8 +421,18 @@ approximator = NTupleApproximator(board_size=4, patterns=patterns, optimistic_in
 def load_weights(approximator, filename_prefix):
     with open(f"{filename_prefix}.pkl", "rb") as f:
         weights_data = pickle.load(f)
+
     for j in range(len(weights_data)):
-        approximator.weights[j] = defaultdict(lambda: 0, weights_data[j])
+        w_dict = weights_data[j]
+
+        # ✅ 計算這個 pattern 中所有 weight 的平均值
+        values = list(w_dict.values())
+        avg = np.mean(values) if values else 0.0
+
+        # ✅ 建立新的 defaultdict，預設值為該 pattern 的平均值
+        approximator.weights[j] = defaultdict(lambda avg=avg: avg, w_dict)
+
+    print(f"📥 Weights loaded from {filename_prefix}.pkl")
 # load_weights(approximator, "/content/drive/MyDrive/DRL/ntuple_1stagefastfastold_whole")
 
 load_weights(approximator, "ntuple_1stagefastfastold_whole")
@@ -434,7 +444,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=100, c_puct=1.41, rollout_depth=4, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=40, c_puct=1.41, rollout_depth=2, gamma=0.99)
     root = PUCTNode(env)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
@@ -448,13 +458,20 @@ def get_action(state, score):
 # score = 0
 # step_count = 0
 # #重複十次
-# for i in range(10):
-#   done = False
-#   while not done:
-#       action = get_action(state, score)
-#       state, score, done, _ = env.step(action)
-#       # env.render()
-#       print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
-#       step_count += 1
+for i in range(10):
+    done = False
+    env = Game2048Env()
+    state = env.reset()
+    score = 0
+    step_count = 0
+    #重複十次
+    while not done:
+        action = get_action(state, score)
+        state, score, done, _ = env.step(action)
+        print(approximator.value(env.board))
 
-#   print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
+        # env.render()
+        # print(f"Step {step_count+1} | Action: {env.actions[action]} | Score: {score}")
+        step_count += 1
+
+    print(f"🏁 Game over! Total steps: {step_count}, Final Score: {score}")
