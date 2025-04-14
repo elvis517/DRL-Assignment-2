@@ -361,7 +361,7 @@ class MCTS_PUCT:
                 break
             action = random.choice(legal_actions)
             sim_env.step(action, add_tile=False)
-        return self.approximator.value(sim_env.board) + sim_env.score/10
+        return self.approximator.value(sim_env.board)
         
     def backpropagate(self, node, reward):
         # Propagate the obtained reward back up the tree.
