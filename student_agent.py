@@ -444,7 +444,7 @@ def get_action(state, score):
     env = Game2048Env()
     env.board = state.copy()
     env.score = score
-    mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=20, rollout_depth=5, gamma=0.99)
+    mcts = MCTS_PUCT(env, approximator, iterations=150, c_puct=20, rollout_depth=3, gamma=0.99)
     root = PUCTNode(env)
     for _ in range(mcts.iterations):
         mcts.run_simulation(root)
